@@ -25,9 +25,9 @@ Se o schema inicial já foi executado, rode também [`supabase/migrations/202609
 
 ## RiftCodex
 
-`/api/cards` faz proxy para `https://api.riftcodex.com`, usando `/cards/name` para busca por nome e `/cards` para paginação. A resposta real da API vem em `items` e já está normalizada no servidor para o formato usado na interface. A API é pública para operações de leitura, portanto nenhuma chave é necessária.
+As rotas `/api/cards` e `/api/cards/names` pesquisam um snapshot normalizado do catálogo oficial armazenado em `data/riftcodex-catalog.json`. Isso evita indisponibilidade em produção quando a infraestrutura da API externa bloqueia requisições da Vercel. Para atualizar as cartas e imagens diretamente da RiftCodex, execute `npm run sync:cards` e publique o arquivo atualizado.
 
-Na tela **Vender cartas**, o fluxo é: buscar no catálogo → clicar no `+` de várias cartas → editar preço/quantidade/condição → selecionar pontos de entrega → publicar todos os anúncios em uma única operação.
+Na tela **Vender cartas**, o fluxo é: escanear automaticamente ou buscar no catálogo → adicionar várias cartas → editar preço/quantidade/condição → selecionar pontos de entrega → publicar todos os anúncios em uma única operação. O scanner faz OCR no próprio navegador e usa o catálogo local para encontrar a versão correspondente; nenhuma foto capturada é enviada ou armazenada.
 
 ## Publicar na Vercel
 

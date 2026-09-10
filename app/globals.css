@@ -77,6 +77,89 @@ button { color: inherit; cursor: pointer; }
 .catalog-hint { margin: 18px 0 0; color: var(--muted); font-size: 11px; }
 .catalog-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 12px 13px; border: 1px solid rgba(244,94,157,.35); background: rgba(244,94,157,.07); color: var(--muted); font-size: 12px; }
 .catalog-error button { flex: 0 0 auto; min-height: 36px; padding: 0 11px; border: 1px solid var(--pink); background: transparent; color: var(--ink); font-size: 11px; font-weight: 600; }
+.scanner-entry { width: 100%; min-height: 78px; display: grid; grid-template-columns: 46px minmax(0,1fr) auto; align-items: center; gap: 13px; padding: 14px; border: 1px solid rgba(109,227,207,.7); background: linear-gradient(110deg, rgba(109,227,207,.18), rgba(244,94,157,.08)); text-align: left; }
+.scanner-entry:hover { border-color: var(--cyan); background: linear-gradient(110deg, rgba(109,227,207,.28), rgba(244,94,157,.12)); }
+.scanner-entry-icon { width: 46px; height: 46px; display: grid; place-items: center; background: var(--ink); color: var(--cyan); }
+.scanner-entry > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.scanner-entry b { font-size: 14px; }
+.scanner-entry small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.scanner-entry-count { padding: 6px 8px; background: var(--cyan); color: var(--ink); font: 10px 'DM Mono'; white-space: nowrap; }
+.catalog-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: var(--muted); font: 10px 'DM Mono'; text-transform: uppercase; letter-spacing: .08em; }
+.catalog-divider::before, .catalog-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+.scanner-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 18px; background: rgba(3,30,37,.82); backdrop-filter: blur(9px); }
+.scanner-modal { width: min(820px, 100%); max-height: calc(100svh - 36px); overflow: auto; background: var(--paper); box-shadow: 0 28px 90px rgba(0,0,0,.46); }
+.scanner-header { position: sticky; top: 0; z-index: 3; min-height: 80px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,.12); background: var(--ink); color: #fff; }
+.scanner-header span { display: block; margin-bottom: 3px; color: var(--cyan); font: 10px 'DM Mono'; letter-spacing: .12em; }
+.scanner-header h2 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
+.scanner-header button { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.25); background: transparent; color: #fff; }
+.scanner-body { padding: 20px; }
+.scanner-mode { width: min(100%, 620px); min-height: 64px; margin: 0 auto 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 13px; border: 1px solid var(--line); background: rgba(255,255,255,.5); }
+.scanner-mode > div { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.scanner-mode > div > svg { flex: 0 0 auto; color: var(--pink); }
+.scanner-mode span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scanner-mode b { font-size: 13px; }
+.scanner-mode small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.scanner-mode > button { position: relative; flex: 0 0 auto; width: 46px; height: 25px; padding: 0; border: 0; border-radius: 20px; background: #bdc9c7; transition: background .2s; }
+.scanner-mode > button i { position: absolute; top: 3px; left: 3px; width: 19px; height: 19px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.22); transition: transform .2s; }
+.scanner-mode > button.is-on { background: var(--cyan); }
+.scanner-mode > button.is-on i { transform: translateX(21px); }
+.scanner-camera { position: relative; width: min(100%, 620px); height: min(53svh, 470px); min-height: 330px; margin: 0 auto; overflow: hidden; background: #061d24; }
+.scanner-camera video, .scanner-camera > img { width: 100%; height: 100%; display: block; }
+.scanner-camera video { object-fit: cover; }
+.scanner-camera video.is-hidden { visibility: hidden; }
+.scanner-camera > img { object-fit: contain; background: #071e25; }
+.scanner-guide { position: absolute; left: 50%; top: 50%; height: min(86%, 420px); width: auto; aspect-ratio: 5 / 7; transform: translate(-50%, -50%); display: flex; align-items: flex-end; justify-content: center; border: 2px solid rgba(109,227,207,.88); box-shadow: 0 0 0 999px rgba(1,19,24,.35), 0 0 24px rgba(109,227,207,.18); pointer-events: none; }
+.scanner-guide::before, .scanner-guide::after, .scanner-guide i::before, .scanner-guide i::after { content: ""; position: absolute; width: 27px; height: 27px; border-color: #fff; }
+.scanner-guide::before { left: -3px; top: -3px; border-left: 4px solid; border-top: 4px solid; }
+.scanner-guide::after { right: -3px; top: -3px; border-right: 4px solid; border-top: 4px solid; }
+.scanner-guide i::before { left: -3px; bottom: -3px; border-left: 4px solid; border-bottom: 4px solid; }
+.scanner-guide i::after { right: -3px; bottom: -3px; border-right: 4px solid; border-bottom: 4px solid; }
+.scanner-guide span { transform: translateY(34px); color: #fff; font-size: 12px; text-align: center; text-shadow: 0 1px 3px #000; }
+.scanner-guide.is-auto { animation: scanner-pulse 1.7s ease-in-out infinite; }
+@keyframes scanner-pulse { 0%,100% { border-color: rgba(109,227,207,.7); } 50% { border-color: #fff; box-shadow: 0 0 0 999px rgba(1,19,24,.35), 0 0 34px rgba(109,227,207,.42); } }
+.scanner-camera-state, .scanner-reading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 30px; background: rgba(4,29,36,.84); color: #fff; text-align: center; font-size: 14px; line-height: 1.45; }
+.scanner-camera-state.error { color: #ffd3e6; }
+.scanner-reading b { font-size: 15px; }
+.scanner-reading small { color: rgba(255,255,255,.68); font-size: 12px; }
+.scanner-reading > div { width: min(310px, 82%); height: 5px; overflow: hidden; background: rgba(255,255,255,.18); }
+.scanner-reading > div span { display: block; height: 100%; min-width: 6%; background: linear-gradient(90deg, var(--cyan), var(--pink)); transition: width .2s; }
+.scanner-added { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 28px; background: rgba(3,45,51,.9); color: #fff; text-align: center; }
+.scanner-added > span { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 50%; background: var(--cyan); color: var(--ink); }
+.scanner-added b { font-size: 20px; }
+.scanner-added small { max-width: 390px; color: rgba(255,255,255,.78); font-size: 13px; line-height: 1.45; }
+.scanner-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+.scanner-actions button { min-height: 44px; }
+.scanner-file-input, .scanner-canvas { display: none; }
+.scanner-success, .scanner-feedback { width: min(100%, 620px); margin: 14px auto 0; display: flex; align-items: center; gap: 8px; padding: 12px 13px; font-size: 13px; line-height: 1.4; }
+.scanner-success { background: rgba(109,227,207,.2); border: 1px solid rgba(109,227,207,.7); }
+.scanner-feedback.error { color: #77354e; background: rgba(244,94,157,.1); border: 1px solid rgba(244,94,157,.4); }
+.scanner-results { width: min(100%, 620px); margin: 20px auto 0; }
+.scanner-results-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.scanner-results-heading > div { display: flex; flex-direction: column; gap: 3px; }
+.scanner-results-heading b { font-size: 15px; }
+.scanner-results-heading small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.scanner-results-heading > span { flex: 0 0 auto; color: var(--muted); font: 10px 'DM Mono'; }
+.scanner-candidates { display: grid; gap: 7px; }
+.scanner-candidates > button { width: 100%; min-height: 78px; display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.55); text-align: left; }
+.scanner-candidates > button.selected { border-color: var(--cyan); box-shadow: inset 4px 0 0 var(--cyan); background: rgba(109,227,207,.12); }
+.scanner-card-image { width: 48px; height: 66px; display: grid; place-items: center; overflow: hidden; background: #dce7e2; }
+.scanner-card-image img { width: 100%; height: 100%; object-fit: contain; }
+.scanner-card-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.scanner-card-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.scanner-card-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10px 'DM Mono'; }
+.scanner-card-copy em { width: fit-content; padding: 3px 5px; background: rgba(109,227,207,.2); color: #147a70; font-size: 10px; font-style: normal; }
+.scanner-confidence { color: var(--pink); font: 11px 'DM Mono'; }
+.scanner-confirm { margin-top: 11px; min-height: 48px; }
+.scanner-recent { width: min(100%, 620px); margin: 18px auto 0; border-top: 1px solid var(--line); padding-top: 13px; }
+.scanner-recent-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.scanner-recent-title b { font-size: 13px; }
+.scanner-recent-title span { min-width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--cyan); font: 10px 'DM Mono'; }
+.scanner-recent-row { min-height: 60px; display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.scanner-recent-row .scanner-card-image { width: 38px; height: 52px; }
+.scanner-recent-row > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.scanner-recent-row > span:nth-child(2) b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.scanner-recent-row > span:nth-child(2) small { color: var(--muted); font: 10px 'DM Mono'; }
+.scanner-recent-row > button { display: inline-flex; align-items: center; gap: 5px; min-height: 38px; padding: 0 8px; border: 0; background: transparent; color: var(--pink); font-size: 11px; text-decoration: underline; }
 .management-panel { margin-top: 34px; padding: 25px; border: 1px solid var(--line); background: rgba(255,255,255,.36); }
 .compact-heading h2 { font-size: 24px; margin-top: 0; }
 .own-listings { display: grid; gap: 8px; margin-top: 22px; }
@@ -274,6 +357,29 @@ button { color: inherit; cursor: pointer; }
   .card-picker { gap: 8px; }
   .catalog-error { align-items: stretch; flex-direction: column; font-size: 13px; line-height: 1.4; }
   .catalog-error button { min-height: 44px; }
+  .scanner-entry { grid-template-columns: 44px minmax(0,1fr); min-height: 84px; padding: 12px; }
+  .scanner-entry-icon { width: 44px; height: 44px; }
+  .scanner-entry-count { grid-column: 2; width: fit-content; margin-top: -2px; }
+  .catalog-divider { margin-block: 18px; }
+  .scanner-backdrop { align-items: end; padding: 0; }
+  .scanner-modal { width: 100%; max-height: 100svh; min-height: 100svh; }
+  .scanner-header { min-height: 68px; padding: 11px 14px; }
+  .scanner-header h2 { font-size: 21px; }
+  .scanner-body { padding: 12px 12px 26px; }
+  .scanner-mode { min-height: 58px; padding: 8px 10px; }
+  .scanner-mode small { max-width: 230px; }
+  .scanner-camera { width: 100%; height: min(58svh, 510px); min-height: 360px; }
+  .scanner-guide span { max-width: 210px; font-size: 13px; }
+  .scanner-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .scanner-actions button { width: 100%; justify-content: center; }
+  .scanner-actions .text-button { grid-column: 1 / -1; }
+  .scanner-results-heading { align-items: flex-start; }
+  .scanner-candidates > button { grid-template-columns: 50px minmax(0,1fr); min-height: 82px; }
+  .scanner-confidence { grid-column: 2; width: fit-content; margin-top: -19px; }
+  .scanner-card-copy b { font-size: 14px; }
+  .scanner-card-copy small { font-size: 11px; }
+  .scanner-recent-row { grid-template-columns: 36px minmax(0,1fr) auto; }
+  .scanner-recent-row > button { padding: 0 4px; }
   .picker-card { min-height: 62px; padding: 8px; }
   .picker-card b { font-size: 14px; }
   .picker-card small { font-size: 11px; line-height: 1.35; }
