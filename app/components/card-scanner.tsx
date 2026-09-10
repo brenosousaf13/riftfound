@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Camera, Check, ImagePlus, Loader2, RotateCcw, ScanLine, Undo2, X, Zap } from "lucide-react";
+import { AlertTriangle, Camera, Check, ImagePlus, Loader2, RotateCcw, ScanLine, Trash2, X, Zap } from "lucide-react";
 
 export type ScannedCard = {
   id: string;
@@ -36,10 +36,13 @@ function extractCardCodes(text: string) {
   const cleaned = text
     .toUpperCase()
     .replace(/\b0GN\b/g, "OGN")
+    .replace(/\bOG5\b/g, "OGS")
     .replace(/\b5FD\b/g, "SFD")
     .replace(/\bVEM\b/g, "VEN")
+    .replace(/\bUN[1I]\b/g, "UNL")
+    .replace(/\b0PP\b/g, "OPP")
     .replace(/[—–_]/g, "-");
-  const matches = [...cleaned.matchAll(/\b([A-Z]{3})[\s-]*([0-9]{2,3})([A*])?(?:[\s\/-]+([0-9]{2,3}))?\b/g)];
+  const matches = [...cleaned.matchAll(/\b(OGN|OGS|UNL|SFD|VEN|OPP|JDG|PR)[\s-]*([0-9]{2,3})([A*])?(?:[\s\/-]+([0-9]{2,3}))?\b/g)];
   const exactCodes = matches.map((match) => {
     const set = match[1];
     const number = `${match[2]}${(match[3] ?? "").toLowerCase()}`;
@@ -112,21 +115,27 @@ async function matchOfficialNames(ocrText: string) {
   }
 }
 
-function scoreCandidate(card: ScannedCard, ocrText: string, codes: string[], matchedBy: "code" | "name") {
+function scoreCandidate(card: ScannedCard, ocrTexts: string[], matchedBy: "code" | "name") {
   const normalizedCardCode = normalizeText(card.riftbound_id);
-  const codeMatch = codes.some((code) => normalizedCardCode.startsWith(normalizeText(code)));
-  if (codeMatch) return 99;
-  const haystack = normalizeText(ocrText);
+  const codeVotes = ocrTexts.filter((text) => extractCardCodes(text).some((code) => normalizedCardCode.startsWith(normalizeText(code)))).length;
+  const haystack = normalizeText(ocrTexts.join("\n"));
   const name = normalizeText(card.name);
-  if (haystack.includes(name)) return 92;
+  const detectedLines = ocrTexts.flatMap(extractNameQueries);
+  const nameSimilarity = detectedLines.length ? Math.max(...detectedLines.map((line) => similarity(line, card.name))) : 0;
+  if (codeVotes >= 2) return 100;
+  if (codeVotes === 1 && (haystack.includes(name) || nameSimilarity >= 0.58)) return 98;
+  if (codeVotes === 1) return 90;
+  if (haystack.includes(name)) return 94;
+  if (nameSimilarity >= 0.82) return 92;
   const tokens = name.split(" ").filter((token) => token.length > 2);
   const found = tokens.filter((token) => haystack.includes(token)).length;
   const ratio = tokens.length ? found / tokens.length : 0;
-  return Math.round((matchedBy === "code" ? 72 : 48) + ratio * 38);
+  return Math.round((matchedBy === "code" ? 68 : 45) + ratio * 35 + nameSimilarity * 18);
 }
 
-async function fetchCandidates(ocrText: string) {
-  const codes = extractCardCodes(ocrText);
+async function fetchCandidates(ocrTexts: string[]) {
+  const combinedText = ocrTexts.join("\n");
+  const codes = ocrTexts.flatMap(extractCardCodes);
   const search = async (searches: Array<{ query: string; matchedBy: "code" | "name" }>) => Promise.all(searches.map(async ({ query, matchedBy }) => {
       const response = await fetch(`/api/cards?query=${encodeURIComponent(query)}&size=10`);
       const payload = await response.json().catch(() => ({}));
@@ -134,15 +143,16 @@ async function fetchCandidates(ocrText: string) {
       return (payload.cards ?? []).map((card: ScannedCard) => ({
         ...card,
         matchedBy,
-        confidence: scoreCandidate(card, ocrText, codes, matchedBy),
+        confidence: scoreCandidate(card, ocrTexts, matchedBy),
       }));
     }));
 
-  let responses = codes.length ? await search(codes.map((query) => ({ query, matchedBy: "code" as const }))) : [];
-  if (!responses.flat().length) {
-    const nameQueries = await matchOfficialNames(ocrText);
-    responses = await search(nameQueries.map((query) => ({ query, matchedBy: "name" as const })));
-  }
+  const uniqueCodes = [...new Set(codes)];
+  const nameQueries = await matchOfficialNames(combinedText);
+  const responses = await search([
+    ...uniqueCodes.map((query) => ({ query, matchedBy: "code" as const })),
+    ...nameQueries.slice(0, uniqueCodes.length ? 2 : 4).map((query) => ({ query, matchedBy: "name" as const })),
+  ]);
 
   const unique = new Map<string, Candidate>();
   for (const candidate of responses.flat()) {
@@ -171,17 +181,18 @@ function drawCardCrop(source: CanvasImageSource, sourceWidth: number, sourceHeig
   context.drawImage(source, sx, sy, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
 }
 
-function createCodeCanvas(source: HTMLCanvasElement) {
+function createCodeCanvas(source: HTMLCanvasElement, threshold?: number) {
   const canvas = document.createElement("canvas");
-  canvas.width = source.width;
-  canvas.height = Math.round(source.height * 0.34);
+  canvas.width = Math.round(source.width * 1.25);
+  canvas.height = Math.round(source.height * 0.28 * 1.25);
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) return source;
-  context.drawImage(source, 0, Math.round(source.height * 0.66), source.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  context.drawImage(source, 0, Math.round(source.height * 0.72), source.width, Math.round(source.height * 0.28), 0, 0, canvas.width, canvas.height);
+  if (threshold === undefined) return canvas;
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
   for (let index = 0; index < pixels.data.length; index += 4) {
     const grey = pixels.data[index] * 0.299 + pixels.data[index + 1] * 0.587 + pixels.data[index + 2] * 0.114;
-    const contrasted = grey > 145 ? 255 : 0;
+    const contrasted = grey > threshold ? 255 : 0;
     pixels.data[index] = contrasted;
     pixels.data[index + 1] = contrasted;
     pixels.data[index + 2] = contrasted;
@@ -190,20 +201,21 @@ function createCodeCanvas(source: HTMLCanvasElement) {
   return canvas;
 }
 
-type RecentScan = { scanId: number; card: ScannedCard };
+type PendingScan = { scanId: number; card: Candidate; alternatives: Candidate[] };
 
-export default function CardScanner({ onCardFound, onUndoCard, selectedCount }: { onCardFound: (card: ScannedCard) => void; onUndoCard: (card: ScannedCard) => void; selectedCount: number }) {
+export default function CardScanner({ onCardFound, selectedCount }: { onCardFound: (card: ScannedCard) => void; selectedCount: number }) {
   const [open, setOpen] = useState(false);
   const [autoMode, setAutoMode] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [preview, setPreview] = useState("");
-  const [status, setStatus] = useState<"idle" | "reading" | "results" | "added" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "reading" | "results" | "identified" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
+  const [pendingScans, setPendingScans] = useState<PendingScan[]>([]);
+  const [confirmedCount, setConfirmedCount] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analysisCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -261,7 +273,15 @@ export default function CardScanner({ onCardFound, onUndoCard, selectedCount }: 
 
   const close = () => {
     setOpen(false);
+    setPendingScans([]);
     resetCapture();
+  };
+
+  const start = () => {
+    setPendingScans([]);
+    setConfirmedCount(0);
+    resetCapture();
+    setOpen(true);
   };
 
   const continueAfter = (operation: number, delay = 1200) => {
@@ -295,20 +315,30 @@ export default function CardScanner({ onCardFound, onUndoCard, selectedCount }: 
       }
       if (operation !== operationRef.current) return;
       const worker = workerRef.current;
+      const observations: string[] = [];
       setMessage("Lendo o código da carta...");
       await worker.setParameters({ tessedit_pageseg_mode: "11", tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/*" });
       const codeResult = await worker.recognize(createCodeCanvas(canvas));
       if (operation !== operationRef.current) return;
-      let recognizedText = codeResult.data.text;
-      if (!extractCardCodes(recognizedText).length) {
-        setMessage("Procurando pelo nome e pela coleção...");
+      observations.push(codeResult.data.text);
+
+      setMessage("Conferindo o código em uma segunda leitura...");
+      const contrastedCodeResult = await worker.recognize(createCodeCanvas(canvas, 150));
+      if (operation !== operationRef.current) return;
+      observations.push(contrastedCodeResult.data.text);
+
+      const firstCodes = extractCardCodes(observations[0]);
+      const secondCodes = extractCardCodes(observations[1]);
+      const codeConfirmed = firstCodes.some((code) => secondCodes.includes(code));
+      if (!codeConfirmed) {
+        setMessage("Conferindo o nome e a versão da carta...");
         await worker.setParameters({ tessedit_pageseg_mode: "11", tessedit_char_whitelist: "" });
         const fullResult = await worker.recognize(canvas, { rotateAuto: true });
         if (operation !== operationRef.current) return;
-        recognizedText = `${recognizedText}\n${fullResult.data.text}`;
+        observations.push(fullResult.data.text);
       }
       setMessage("Comparando com o catálogo...");
-      const matches = await fetchCandidates(recognizedText);
+      const matches = await fetchCandidates(observations);
       if (operation !== operationRef.current) return;
       if (!matches.length) {
         setStatus("error");
@@ -321,17 +351,17 @@ export default function CardScanner({ onCardFound, onUndoCard, selectedCount }: 
       }
       if (automatic) {
         const card = matches[0];
-        onCardFound(card);
-        setRecentScans((current) => [{ scanId: Date.now(), card }, ...current].slice(0, 5));
+        const scanId = Date.now() + Math.random();
+        setPendingScans((current) => [{ scanId, card, alternatives: matches }, ...current]);
         setCandidates(matches);
         setSelectedId(card.id);
         setProgress(1);
-        setStatus("added");
-        setMessage(`${card.name} adicionada. Retire a carta e posicione a próxima.`);
+        setStatus("identified");
+        setMessage(`${card.name} identificada. Confirme no cartão abaixo.`);
         waitingForChangeRef.current = true;
         previousFrameRef.current = null;
         stableFramesRef.current = 0;
-        continueAfter(operation, 900);
+        continueAfter(operation, 700);
         return;
       }
       setCandidates(matches);
@@ -456,14 +486,34 @@ export default function CardScanner({ onCardFound, onUndoCard, selectedCount }: 
   const confirm = () => {
     if (!selected) return;
     onCardFound(selected);
-    setRecentScans((current) => [{ scanId: Date.now(), card: selected }, ...current].slice(0, 5));
+    setConfirmedCount((current) => current + 1);
     const name = selected.name;
     resetCapture();
     setMessage(`${name} adicionada. Posicione a próxima carta.`);
   };
 
+  const confirmPending = (scanId: number) => {
+    const pending = pendingScans.find((scan) => scan.scanId === scanId);
+    if (!pending) return;
+    onCardFound(pending.card);
+    setConfirmedCount((current) => current + 1);
+    setPendingScans((current) => current.filter((scan) => scan.scanId !== scanId));
+  };
+
+  const discardPending = (scanId: number) => {
+    setPendingScans((current) => current.filter((scan) => scan.scanId !== scanId));
+  };
+
+  const changePendingResult = (scanId: number, cardId: string) => {
+    setPendingScans((current) => current.map((scan) => {
+      if (scan.scanId !== scanId) return scan;
+      const replacement = scan.alternatives.find((card) => card.id === cardId);
+      return replacement ? { ...scan, card: replacement } : scan;
+    }));
+  };
+
   return <>
-    <button className="scanner-entry" type="button" onClick={() => setOpen(true)}>
+    <button className="scanner-entry" type="button" onClick={start}>
       <span className="scanner-entry-icon"><ScanLine size={24} /></span>
       <span><b>Escanear cartas</b><small>Use a câmera e adicione várias em sequência</small></span>
       <span className="scanner-entry-count">{selectedCount} na lista</span>
@@ -472,55 +522,69 @@ export default function CardScanner({ onCardFound, onUndoCard, selectedCount }: 
     {open && <div className="scanner-backdrop" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
       <div className="scanner-modal">
         <header className="scanner-header">
-          <div><span>CADASTRO RÁPIDO</span><h2 id="scanner-title">Escanear carta</h2></div>
-          <button type="button" onClick={close} aria-label="Fechar scanner"><X size={21} /></button>
+          <div><span>CADASTRO RÁPIDO</span><h2 id="scanner-title">Escanear cartas</h2></div>
+          <div className="scanner-session-status"><b>{confirmedCount}</b><small>confirmada(s) nesta sessão</small></div>
+          <div className="scanner-header-actions">
+            <button className="scanner-finish" type="button" onClick={close}><Check size={17} /> Finalizar</button>
+            <button className="scanner-close" type="button" onClick={close} aria-label="Fechar scanner"><X size={21} /></button>
+          </div>
         </header>
 
         <div className="scanner-body">
-          <div className="scanner-mode">
-            <div><Zap size={17} /><span><b>Leitura automática</b><small>Identifica e adiciona assim que a carta fica estável.</small></span></div>
-            <button type="button" role="switch" aria-checked={autoMode} className={autoMode ? "is-on" : ""} onClick={() => { resetCapture(); setAutoMode((current) => !current); }}><i /></button>
-          </div>
           <div className="scanner-camera">
             <video ref={videoRef} className={preview ? "is-hidden" : ""} playsInline muted aria-label="Visualização da câmera" />
             {preview && <img src={preview} alt="Carta capturada" />}
-            {!preview && <div className={`scanner-guide ${autoMode ? "is-auto" : ""}`} aria-hidden="true"><i /><span>{autoMode ? (message || "Posicione uma carta e mantenha o celular firme") : "Mantenha a carta dentro da moldura"}</span></div>}
+            {!preview && <div className={`scanner-guide ${autoMode ? "is-auto" : ""}`} aria-hidden="true"><i /><span>{autoMode ? (message || "Centralize a carta e mantenha o celular firme") : "Mantenha a carta dentro da moldura"}</span></div>}
             {!preview && !cameraReady && !cameraError && <div className="scanner-camera-state"><Loader2 className="spin" size={24} /> Abrindo câmera...</div>}
             {!preview && cameraError && <div className="scanner-camera-state error"><AlertTriangle size={24} /> {cameraError}</div>}
-            {status === "reading" && <div className="scanner-reading"><Loader2 className="spin" size={30} /><b>{message}</b><div><span style={{ width: `${Math.max(6, Math.round(progress * 100))}%` }} /></div><small>A primeira leitura pode demorar um pouco.</small></div>}
-            {status === "added" && <div className="scanner-added"><span><Check size={30} /></span><b>Carta adicionada</b><small>{message}</small></div>}
-          </div>
+            {status === "reading" && <div className="scanner-reading"><Loader2 className="spin" size={30} /><b>{message}</b><div><span style={{ width: `${Math.max(6, Math.round(progress * 100))}%` }} /></div><small>Estou conferindo código, nome e versão.</small></div>}
+            {status === "identified" && <div className="scanner-scan-flash"><Check size={17} /> Resultado pronto para confirmar</div>}
 
-          <div className="scanner-actions">
-            {!preview && <button className="primary-button" type="button" onClick={() => capture(autoMode)} disabled={!cameraReady}><Camera size={17} /> {autoMode ? "Ler agora" : "Capturar carta"}</button>}
-            <button className="outline-button" type="button" onClick={() => fileInputRef.current?.click()} disabled={status === "reading"}><ImagePlus size={17} /> Enviar foto</button>
-            {preview && status !== "reading" && <button className="text-button" type="button" onClick={resetCapture}><RotateCcw size={15} /> Tirar outra</button>}
-            <input ref={fileInputRef} className="scanner-file-input" type="file" accept="image/*" capture="environment" onChange={loadPhoto} />
-          </div>
-
-          {message && status === "idle" && <div className="scanner-success"><Check size={16} /> {message}</div>}
-          {status === "error" && <div className="scanner-feedback error"><AlertTriangle size={17} /><span>{message}</span></div>}
-
-          {status === "results" && <div className="scanner-results">
-            <div className="scanner-results-heading"><div><b>Confirme a carta</b><small>{message}</small></div><span>{candidates.length} resultado(s)</span></div>
-            <div className="scanner-candidates">
-              {candidates.map((card) => <button type="button" key={card.id} className={card.id === selected?.id ? "selected" : ""} onClick={() => setSelectedId(card.id)}>
-                <span className="scanner-card-image">{card.imageUrl ? <img src={card.imageUrl} alt={card.name} /> : <ScanLine size={20} />}</span>
-                <span className="scanner-card-copy"><b>{card.name}</b><small>{card.riftbound_id} · {card.setLabel} · {card.rarity}</small><em>{card.matchedBy === "code" ? "Código identificado" : "Nome identificado"}</em></span>
-                <span className="scanner-confidence">{card.confidence >= 85 ? "Alta compatibilidade" : "Possível"}</span>
-              </button>)}
+            <div className="scanner-overlay-toolbar">
+              <div className="scanner-mode">
+                <div><Zap size={17} /><span><b>Leitura automática</b><small>{autoMode ? "Ativa" : "Pausada"}</small></span></div>
+                <button type="button" role="switch" aria-label="Ativar leitura automática" aria-checked={autoMode} className={autoMode ? "is-on" : ""} onClick={() => { resetCapture(); setAutoMode((current) => !current); }}><i /></button>
+              </div>
+              <div className="scanner-actions">
+                {!preview && <button className="primary-button" type="button" onClick={() => capture(autoMode)} disabled={!cameraReady}><Camera size={17} /> Ler agora</button>}
+                <button className="scanner-upload" type="button" onClick={() => fileInputRef.current?.click()} disabled={status === "reading"}><ImagePlus size={17} /> Foto</button>
+                {preview && status !== "reading" && <button className="scanner-upload" type="button" onClick={resetCapture}><RotateCcw size={15} /> Repetir</button>}
+                <input ref={fileInputRef} className="scanner-file-input" type="file" accept="image/*" capture="environment" onChange={loadPhoto} />
+              </div>
             </div>
-            <button className="primary-button full scanner-confirm" type="button" onClick={confirm}><Check size={17} /> Adicionar {selected?.name}</button>
-          </div>}
 
-          {recentScans.length > 0 && <div className="scanner-recent">
-            <div className="scanner-recent-title"><b>Adicionadas nesta sessão</b><span>{recentScans.length}</span></div>
-            {recentScans.map(({ scanId, card }) => <div className="scanner-recent-row" key={scanId}>
-              <span className="scanner-card-image">{card.imageUrl ? <img src={card.imageUrl} alt="" /> : <ScanLine size={18} />}</span>
-              <span><b>{card.name}</b><small>{card.riftbound_id}</small></span>
-              <button type="button" onClick={() => { onUndoCard(card); setRecentScans((current) => current.filter((scan) => scan.scanId !== scanId)); }}><Undo2 size={14} /> Desfazer</button>
-            </div>)}
-          </div>}
+            {status === "error" && <div className="scanner-feedback error"><AlertTriangle size={17} /><span>{message}</span><button type="button" onClick={resetCapture}>Tentar novamente</button></div>}
+
+            {status === "results" && <div className="scanner-results scanner-results-overlay">
+              <div className="scanner-results-heading"><div><b>Confirme a carta</b><small>{message}</small></div><span>{candidates.length} resultado(s)</span></div>
+              <div className="scanner-candidates">
+                {candidates.map((card) => <button type="button" key={card.id} className={card.id === selected?.id ? "selected" : ""} onClick={() => setSelectedId(card.id)}>
+                  <span className="scanner-card-image">{card.imageUrl ? <img src={card.imageUrl} alt={card.name} /> : <ScanLine size={20} />}</span>
+                  <span className="scanner-card-copy"><b>{card.name}</b><small>{card.riftbound_id} · {card.setLabel} · {card.rarity}</small></span>
+                  <span className="scanner-confidence">{card.confidence >= 95 ? "Alta precisão" : "Confira"}</span>
+                </button>)}
+              </div>
+              <button className="primary-button full scanner-confirm" type="button" onClick={confirm}><Check size={17} /> Confirmar {selected?.name}</button>
+            </div>}
+
+            {pendingScans.length > 0 && <div className="scanner-pending-rail" aria-live="polite">
+              {pendingScans.map((scan) => <article className="scanner-pending-card" key={scan.scanId}>
+                <span className="scanner-pending-image">{scan.card.imageUrl ? <img src={scan.card.imageUrl} alt="" /> : <ScanLine size={22} />}</span>
+                <div className="scanner-pending-copy">
+                  <em>CONFIRA O SCAN</em>
+                  <b>{scan.card.name}</b>
+                  <small>{scan.card.riftbound_id} · {scan.card.setLabel}</small>
+                  {scan.alternatives.length > 1 && <select aria-label="Corrigir resultado da leitura" value={scan.card.id} onChange={(event) => changePendingResult(scan.scanId, event.target.value)}>
+                    {scan.alternatives.map((alternative) => <option value={alternative.id} key={alternative.id}>{alternative.name} · {alternative.riftbound_id}</option>)}
+                  </select>}
+                </div>
+                <div className="scanner-pending-actions">
+                  <button className="scanner-accept" type="button" onClick={() => confirmPending(scan.scanId)}><Check size={16} /> Confirmar</button>
+                  <button className="scanner-reject" type="button" onClick={() => discardPending(scan.scanId)} aria-label={`Descartar ${scan.card.name}`}><Trash2 size={16} /> Descartar</button>
+                </div>
+              </article>)}
+            </div>}
+          </div>
         </div>
         <canvas ref={canvasRef} className="scanner-canvas" />
         <canvas ref={analysisCanvasRef} className="scanner-canvas" />
