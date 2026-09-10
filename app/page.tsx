@@ -87,6 +87,8 @@ export default function Home() {
   const [showLocationForm, setShowLocationForm] = useState(false);
   const [marketLoading, setMarketLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogRetry, setCatalogRetry] = useState(0);
   const [loading, setLoading] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -197,21 +199,25 @@ export default function Home() {
   useEffect(() => {
     if (activeView !== "sell" && activeView !== "want") return;
     const query = (activeView === "sell" ? catalogQuery : wantQuery).trim();
-    if (query.length < 2) { setCards([]); setCatalogLoading(false); return; }
+    if (query.length < 2) { setCards([]); setCatalogError(""); setCatalogLoading(false); return; }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setCatalogLoading(true);
+      setCatalogError("");
       try {
         const response = await fetch(`/api/cards?query=${encodeURIComponent(query)}&size=24`, { signal: controller.signal });
-        const payload = await response.json();
+        const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error ?? "Catálogo indisponível");
         setCards((payload.cards ?? []).map(apiCardToCard));
       } catch (error) {
-        if ((error as Error).name !== "AbortError") { setCards([]); notify("O catálogo não respondeu. Tente novamente."); }
+        if ((error as Error).name !== "AbortError") {
+          setCards([]);
+          setCatalogError((error as Error).message || "O catálogo não respondeu.");
+        }
       } finally { if (!controller.signal.aborted) setCatalogLoading(false); }
-    }, 300);
+    }, 550);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [activeView, catalogQuery, wantQuery]);
+  }, [activeView, catalogQuery, wantQuery, catalogRetry]);
 
   const marketplaceCards = useMemo(() => {
     const text = marketQuery.trim().toLocaleLowerCase("pt-BR");
@@ -420,8 +426,8 @@ export default function Home() {
       {activeView === "market" && !showResults && <Hero query={heroQuery} setQuery={setHeroQuery} submit={submitHeroSearch} total={listings.length} />}
       {activeView === "market" && showResults && <MarketSection listings={marketplaceCards} allListings={listings} loading={marketLoading} query={marketQuery} setQuery={setMarketQuery} setFilter={setFilter} onSetFilter={setSetFilter} rarityFilter={rarityFilter} setRarityFilter={setRarityFilter} sort={sort} setSort={setSort} viewMode={viewMode} setViewMode={setViewMode} onSell={() => user ? setActiveView("sell") : setAuthOpen(true)} onRefresh={loadMarketplace} canSell={!!user} />}
       {activeView === "wanted" && <WantedSection groups={wantedGroups} />}
-      {activeView === "sell" && <SellSection query={catalogQuery} setQuery={setCatalogQuery} cards={cards} catalogLoading={catalogLoading} drafts={drafts} setDrafts={setDrafts} addDraft={addDraft} publish={publishDrafts} loading={loading} share={shareList} locations={locations} selectedLocationIds={selectedLocationIds} setSelectedLocationIds={setSelectedLocationIds} ownListings={ownListings} updateListing={updateListing} demandByCard={demandByCard} />}
-      {activeView === "want" && <WantSection query={wantQuery} setQuery={setWantQuery} cards={cards} catalogLoading={catalogLoading} selected={selectedWantCard} setSelected={setSelectedWantCard} save={saveWant} wants={wants} remove={removeWant} changeQuantity={changeWantQuantity} loading={loading} share={shareList} />}
+      {activeView === "sell" && <SellSection query={catalogQuery} setQuery={setCatalogQuery} cards={cards} catalogLoading={catalogLoading} catalogError={catalogError} retryCatalog={() => setCatalogRetry((value) => value + 1)} drafts={drafts} setDrafts={setDrafts} addDraft={addDraft} publish={publishDrafts} loading={loading} share={shareList} locations={locations} selectedLocationIds={selectedLocationIds} setSelectedLocationIds={setSelectedLocationIds} ownListings={ownListings} updateListing={updateListing} demandByCard={demandByCard} />}
+      {activeView === "want" && <WantSection query={wantQuery} setQuery={setWantQuery} cards={cards} catalogLoading={catalogLoading} catalogError={catalogError} retryCatalog={() => setCatalogRetry((value) => value + 1)} selected={selectedWantCard} setSelected={setSelectedWantCard} save={saveWant} wants={wants} remove={removeWant} changeQuantity={changeWantQuantity} loading={loading} share={shareList} />}
       {activeView === "profile" && <ProfileSection form={profileForm} setForm={setProfileForm} save={saveProfile} locations={locations} locationDraft={locationDraft} setLocationDraft={setLocationDraft} showLocationForm={showLocationForm} setShowLocationForm={setShowLocationForm} editingLocationId={editingLocationId} setEditingLocationId={setEditingLocationId} saveLocation={saveLocation} editLocation={editLocation} removeLocation={removeLocation} logout={logout} loading={loading} />}
 
       <Footer />
@@ -484,7 +490,7 @@ function ListingCard({ listing }: { listing: MarketplaceCard }) {
 }
 
 function SellSection(props: any) {
-  const { query, setQuery, cards, catalogLoading, drafts, setDrafts, addDraft, publish, loading, share, locations, selectedLocationIds, setSelectedLocationIds, ownListings, updateListing, demandByCard } = props;
+  const { query, setQuery, cards, catalogLoading, catalogError, retryCatalog, drafts, setDrafts, addDraft, publish, loading, share, locations, selectedLocationIds, setSelectedLocationIds, ownListings, updateListing, demandByCard } = props;
   const [sellTab, setSellTab] = useState<"create" | "manage">("create");
   const [manageQuery, setManageQuery] = useState("");
   const [manageStatus, setManageStatus] = useState("all");
@@ -508,16 +514,17 @@ function SellSection(props: any) {
   return <section className="content-section workspace-view">
     <div className="section-heading"><div><div className="section-kicker">ÁREA DO VENDEDOR <span>•</span> {ownListings.length} ANÚNCIO(S)</div><h2>Venda suas cartas</h2><p>Publique em lote ou administre seu estoque em espaços separados.</p></div><button className="outline-button" onClick={share}><Link2 size={16} /> Compartilhar minha lista</button></div>
     <div className="section-tabs" role="tablist" aria-label="Área de vendas"><button role="tab" aria-selected={sellTab === "create"} className={sellTab === "create" ? "active" : ""} onClick={() => setSellTab("create")}><Plus size={16} /> Anunciar cartas <span>{drafts.length}</span></button><button role="tab" aria-selected={sellTab === "manage"} className={sellTab === "manage" ? "active" : ""} onClick={() => setSellTab("manage")}><Tag size={16} /> Meus anúncios <span>{ownListings.length}</span></button></div>
-    {sellTab === "create" && <div className="sell-layout"><div className="sell-panel"><label className="field-label">Buscar no catálogo oficial</label><div className="hero-search compact"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Digite pelo menos 2 letras..." /></div><CatalogResults query={query} cards={cards} loading={catalogLoading} selectedIds={drafts.map((item: DraftListing) => item.card.id)} onSelect={addDraft} /></div>
+    {sellTab === "create" && <div className="sell-layout"><div className="sell-panel"><label className="field-label">Buscar no catálogo oficial</label><div className="hero-search compact"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Digite pelo menos 2 letras..." /></div><CatalogResults query={query} cards={cards} loading={catalogLoading} error={catalogError} retry={retryCatalog} selectedIds={drafts.map((item: DraftListing) => item.card.id)} onSelect={addDraft} /></div>
       <div className="sell-panel details-panel"><div className="panel-top"><h3>Itens para publicar <span>{drafts.length}</span></h3></div>{drafts.length ? <><div className="draft-list">{drafts.map((draft: DraftListing) => <div className="draft-row" key={draft.card.id}><CardThumb card={draft.card} /><div className="draft-main"><b>{draft.card.name}</b><small>{draft.card.riftbound_id}</small><div className="draft-fields"><label>Preço<input value={draft.price} onChange={(event) => updateDraft(draft.card.id, { price: event.target.value })} placeholder="15,00" /></label><label>Qtd.<div className="quantity-input"><button type="button" onClick={() => updateDraft(draft.card.id, { quantity: Math.max(1, draft.quantity - 1) })}><Minus size={13} /></button><input type="number" min="1" value={draft.quantity} onChange={(event) => updateDraft(draft.card.id, { quantity: Math.max(1, Number(event.target.value) || 1) })} /><button type="button" onClick={() => updateDraft(draft.card.id, { quantity: draft.quantity + 1 })}><Plus size={13} /></button></div></label><label>Condição<select value={draft.condition} onChange={(event) => updateDraft(draft.card.id, { condition: event.target.value })}>{Object.entries(conditionLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div></div><button className="remove-button" onClick={() => setDrafts((current: DraftListing[]) => current.filter((item) => item.card.id !== draft.card.id))}><Trash2 size={15} /></button></div>)}</div><div className="delivery-picker"><b>Onde você entrega?</b>{locations.length ? locations.map((location: DeliveryLocation) => <label key={location.id}><input type="checkbox" checked={selectedLocationIds.includes(location.id)} onChange={() => setSelectedLocationIds((current: string[]) => current.includes(location.id) ? current.filter((id) => id !== location.id) : [...current, location.id])} /> {location.name} · {(location.available_days ?? []).map((day) => weekDays[day]).join(", ")}</label>) : <small>Cadastre um ponto de entrega no seu perfil.</small>}</div><button className="primary-button full" onClick={publish} disabled={loading}>{loading ? <Loader2 className="spin" size={16} /> : <Check size={16} />} Publicar {drafts.length} anúncio(s)</button></> : <div className="empty-form"><Tag size={26} /><h3>Sua lista está vazia</h3><p>Use a busca para adicionar quantas cartas quiser.</p></div>}</div>
     </div>}
     {sellTab === "manage" && <div className="management-panel"><div className="section-heading compact-heading"><div><h2>Meus anúncios</h2><p>Busque, filtre e altere preço, quantidade, condição ou disponibilidade.</p></div></div><div className="manage-toolbar"><div className="toolbar-search"><Search size={17} /><input value={manageQuery} onChange={(event) => setManageQuery(event.target.value)} placeholder="Buscar por carta ou código..." /></div><div className="select-wrap"><select value={manageStatus} onChange={(event) => setManageStatus(event.target.value)}><option value="all">Todos os status</option><option value="active">Ativos</option><option value="paused">Pausados</option><option value="reserved">Reservados</option><option value="sold">Vendidos</option></select></div><div className="select-wrap"><select value={manageSet} onChange={(event) => setManageSet(event.target.value)}><option value="all">Todos os sets</option>{managementSets.map((setName) => <option value={setName} key={setName}>{setName}</option>)}</select></div><div className="select-wrap"><select value={manageCondition} onChange={(event) => setManageCondition(event.target.value)}><option value="all">Todas as condições</option>{Object.entries(conditionLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></div></div><div className="manage-count">{filteredOwnListings.length} de {ownListings.length} anúncio(s)</div>{visibleListings.length ? <div className="own-listings">{visibleListings.map((listing: Listing) => <OwnListingRow key={listing.listingId} listing={listing} save={updateListing} demand={demandByCard.get(listing.id) ?? 0} />)}</div> : <div className="empty-state"><Tag size={23} /><h3>Nenhum anúncio encontrado</h3><p>Ajuste a busca ou os filtros.</p></div>}{totalPages > 1 && <div className="pagination"><button className="outline-button" disabled={managePage === 1} onClick={() => setManagePage((page) => Math.max(1, page - 1))}>Anterior</button><span>Página {managePage} de {totalPages}</span><button className="outline-button" disabled={managePage === totalPages} onClick={() => setManagePage((page) => Math.min(totalPages, page + 1))}>Próxima</button></div>}</div>}
   </section>;
 }
 
-function CatalogResults({ query, cards, loading, selectedIds, onSelect }: any) {
+function CatalogResults({ query, cards, loading, error, retry, selectedIds, onSelect }: any) {
   if (query.trim().length < 2) return <p className="catalog-hint">Comece a digitar para pesquisar no catálogo.</p>;
   if (loading) return <div className="inline-loading"><Loader2 className="spin" size={17} /> Consultando catálogo...</div>;
+  if (error) return <div className="catalog-error"><span>{error}</span><button type="button" onClick={retry}>Tentar novamente</button></div>;
   if (!cards.length) return <p className="catalog-hint">Nenhuma carta encontrada.</p>;
   return <div className="card-picker">{cards.map((card: Card) => <button className={`picker-card ${selectedIds.includes(card.id) ? "selected" : ""}`} key={card.id} onClick={() => onSelect(card)}><CardThumb card={card} /><span><b>{card.name}</b><small>{card.riftbound_id} · {card.setLabel} · {card.rarity}</small></span>{selectedIds.includes(card.id) ? <Check size={15} /> : <Plus size={15} />}</button>)}</div>;
 }
@@ -560,11 +567,11 @@ function WantedSection({ groups }: { groups: WantedGroup[] }) {
 }
 
 function WantSection(props: any) {
-  const { query, setQuery, cards, catalogLoading, selected, setSelected, save, wants, remove, changeQuantity, loading, share } = props;
+  const { query, setQuery, cards, catalogLoading, catalogError, retryCatalog, selected, setSelected, save, wants, remove, changeQuantity, loading, share } = props;
   return <section className="content-section workspace-view">
     <div className="section-heading"><div><div className="section-kicker">SUA COLEÇÃO <span>•</span> LISTA DE DESEJOS</div><h2>Minha want list</h2><p>As cartas aparecem com imagem no seu link público.</p></div><button className="primary-button" onClick={share}><Link2 size={16} /> Compartilhar want list</button></div>
     <div className="want-layout"><div className="want-intro"><div className="want-orbit"><Heart size={28} /></div><h3>Deixe os outros jogadores ajudarem</h3><p>Quem visitar seus anúncios poderá conferir as cartas que você aceita na negociação.</p><div className="want-share"><span><Link2 size={15} /> sua lista pública</span><button onClick={share} aria-label="Copiar link"><Copy size={15} /></button></div></div>
-      <div className="want-list-panel"><div className="panel-top"><h3>Cartas que procuro <span>{wants.length}</span></h3></div><div className="hero-search compact"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setSelected(null); }} placeholder="Digite pelo menos 2 letras..." /></div><CatalogResults query={query} cards={cards.slice(0, 8)} loading={catalogLoading} selectedIds={selected ? [selected.id] : []} onSelect={setSelected} />{selected && <button className="primary-button full want-add-button" onClick={save} disabled={loading}><Plus size={16} /> Adicionar {selected.name}</button>}
+      <div className="want-list-panel"><div className="panel-top"><h3>Cartas que procuro <span>{wants.length}</span></h3></div><div className="hero-search compact"><Search size={16} /><input value={query} onChange={(event) => { setQuery(event.target.value); setSelected(null); }} placeholder="Digite pelo menos 2 letras..." /></div><CatalogResults query={query} cards={cards.slice(0, 8)} loading={catalogLoading} error={catalogError} retry={retryCatalog} selectedIds={selected ? [selected.id] : []} onSelect={setSelected} />{selected && <button className="primary-button full want-add-button" onClick={save} disabled={loading}><Plus size={16} /> Adicionar {selected.name}</button>}
         <div className="saved-wants">{wants.map((want: WantItem) => <div className="want-row" key={want.id}><CardThumb card={want.card ?? ({ id: want.card_id, name: "Carta", riftbound_id: "", rarity: "", type: "", setLabel: "", setId: "", domains: [] } as Card)} /><div><b>{want.card?.name ?? want.card_id}</b><small>{want.card?.riftbound_id ?? "Carta salva"} · {conditionLabels[want.condition ?? ""] ?? "Qualquer condição"}</small></div><div className="want-quantity"><button onClick={() => changeQuantity(want, want.quantity - 1)} disabled={want.quantity <= 1}><Minus size={12} /></button><span>{want.quantity}</span><button onClick={() => changeQuantity(want, want.quantity + 1)}><Plus size={12} /></button></div><button className="remove-button" onClick={() => remove(want)} aria-label="Remover"><X size={16} /></button></div>)}</div>
       </div>
     </div>
